@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PC Remote Power Controller</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-slate-900 text-slate-100 min-h-screen flex items-center justify-center p-4">
+
+    <div class="w-full max-w-md bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-6 space-y-6">
+
+        <div class="text-center">
+            <h1 class="text-2xl font-bold tracking-tight text-white">PC Power Portal</h1>
+            <p class="text-sm text-slate-400 mt-1">Remote ESP32 Controller Interface</p>
+        </div>
+
+        <hr class="border-slate-700" />
+
+        <div id="authSection" class="space-y-4">
+            <div class="flex border-b border-slate-700">
+                <button id="tabLogin"
+                    class="w-1/2 pb-2 text-center font-medium border-b-2 border-blue-500 text-blue-400"
+                    onclick="switchTab('login')">Login</button>
+                <button id="tabRegister"
+                    class="w-1/2 pb-2 text-center font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200"
+                    onclick="switchTab('register')">Register</button>
+            </div>
+
+            <form id="authForm" class="space-y-4" onsubmit="handleAuth(event)">
+                <div>
+                    <label
+                        class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Username</label>
+                    <input type="text" id="username" required
+                        class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 text-white">
+                </div>
+                <div id="emailField" class="hidden">
+                    <label
+                        class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Email</label>
+                    <input type="email" id="email"
+                        class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 text-white">
+                </div>
+                <div>
+                    <label
+                        class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Password</label>
+                    <input type="password" id="password" required
+                        class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 text-white">
+                </div>
+                <button type="submit" id="authSubmitBtn"
+                    class="w-full py-2 bg-blue-600 hover:bg-blue-500 transition font-medium rounded-lg text-white shadow-md">
+                    Sign In
+                </button>
+            </form>
+            <p id="authMessage" class="text-sm text-center font-medium min-h-[20px]"></p>
+        </div>
+
+        <div id="controlSection" class="hidden space-y-6">
+            <div class="flex items-center justify-between p-4 bg-slate-900 rounded-xl border border-slate-700">
+                <div>
+                    <h3 class="font-medium text-slate-200">ESP32 Hardware</h3>
+                    <p id="lastSeenText" class="text-xs text-slate-500 mt-0.5">Last seen: Never</p>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span id="statusIndicator" class="h-3 w-3 rounded-full bg-slate-600 animate-pulse"></span>
+                    <span id="statusText" class="text-sm font-semibold text-slate-400">Checking...</span>
+                </div>
+            </div>
+
+            <div class="text-center py-4">
+                <button id="powerTriggerBtn" onclick="togglePowerPermission()"
+                    class="h-32 w-32 rounded-full border-4 border-slate-700 bg-slate-900 text-slate-400 hover:text-white hover:border-blue-500 transition-all duration-300 shadow-inner flex flex-col items-center justify-center space-y-1 mx-auto focus:outline-none disabled:opacity-50">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2"
+                        stroke="currentColor" class="w-10 h-10">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M5.636 5.636a9 9 0 1 0 12.728 0M12 3v9" />
+                    </svg>
+                    <span id="buttonStateLabel" class="text-xs font-bold uppercase tracking-widest">Off</span>
+                </button>
+                <p class="text-xs text-slate-500 mt-4">Click button to signal ESP32 to cycle PC power state.</p>
+            </div>
+
+            <button onclick="logout()"
+                class="w-full py-2 bg-slate-700 hover:bg-slate-600 transition font-medium rounded-lg text-slate-300 text-sm">
+                Log Out Account
+            </button>
+        </div>
+
+    </div>
+
+    <script>
+        // Change this URL to your live Render backend app address when deployed!
+        const API_BASE_URL = 'https://my-pc-power-on-controller-backend.onrender.com/api';
+
+        let currentTab = 'login';
+        let authToken = localStorage.getItem('pc_auth_token');
+        let pollingInterval = null;
+
+        // Initialize App State
+        document.addEventListener("DOMContentLoaded", () => {
+            if (authToken) {
+                showControlPanel();
+            }
+        });
+
+        function switchTab(tab) {
+            currentTab = tab;
+            const emailField = document.getElementById('emailField');
+            const submitBtn = document.getElementById('authSubmitBtn');
+            const tabLogin = document.getElementById('tabLogin');
+            const tabRegister = document.getElementById('tabRegister');
+            document.getElementById('authMessage').innerText = '';
+
+            if (tab === 'register') {
+                emailField.classList.remove('hidden');
+                submitBtn.innerText = 'Create Account';
+                tabRegister.className = "w-1/2 pb-2 text-center font-medium border-b-2 border-blue-500 text-blue-400";
+                tabLogin.className = "w-1/2 pb-2 text-center font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200";
+            } else {
+                emailField.classList.add('hidden');
+                submitBtn.innerText = 'Sign In';
+                tabLogin.className = "w-1/2 pb-2 text-center font-medium border-b-2 border-blue-500 text-blue-400";
+                tabRegister.className = "w-1/2 pb-2 text-center font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200";
+            }
+        }
+
+        async function handleAuth(event) {
+            event.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const email = document.getElementById('email').value;
+            const messageEl = document.getElementById('authMessage');
+
+            messageEl.className = "text-sm text-center font-medium text-blue-400";
+            messageEl.innerText = "Processing...";
+
+            const endpoint = currentTab === 'register' ? '/register/' : '/login/';
+            const payload = currentTab === 'register' ? { username, password, email } : { username, password };
+
+            try {
+                const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || JSON.stringify(data));
+                }
+
+                if (currentTab === 'login') {
+                    authToken = data.token;
+                    localStorage.setItem('pc_auth_token', authToken);
+                    messageEl.innerText = "";
+                    showControlPanel();
+                } else {
+                    messageEl.className = "text-sm text-center font-medium text-green-400";
+                    messageEl.innerText = "Registered! Awaiting Admin Superuser approval.";
+                    document.getElementById('authForm').reset();
+                }
+            } catch (error) {
+                messageEl.className = "text-sm text-center font-medium text-red-400";
+                messageEl.innerText = error.message;
+            }
+        }
+
+        function showControlPanel() {
+            document.getElementById('authSection').classList.add('hidden');
+            document.getElementById('controlSection').classList.remove('hidden');
+
+            // Immediately fetch status and start a 5-second UI refresh interval loop
+            fetchSystemStatus();
+            pollingInterval = setInterval(fetchSystemStatus, 5000);
+        }
+
+        async function fetchSystemStatus() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/pc-status/`, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Token ${authToken}` }
+                });
+
+                if (response.status === 401 || response.status === 403) {
+                    // Handled access denied / unverified profiles
+                    alert("Access Denied. Account might not be marked Active/Verified by superuser yet.");
+                    logout();
+                    return;
+                }
+
+                const data = await response.json();
+                updateUI(data);
+            } catch (error) {
+                console.error("Error communicating with control API:", error);
+            }
+        }
+
+        function updateUI(data) {
+            const indicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+            const lastSeenText = document.getElementById('lastSeenText');
+            const btn = document.getElementById('powerTriggerBtn');
+            const btnLabel = document.getElementById('buttonStateLabel');
+
+            // Handle Hardware Pulse Indicator 
+            if (data.is_online) {
+                indicator.className = "h-3 w-3 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]";
+                statusText.className = "text-sm font-semibold text-emerald-400";
+                statusText.innerText = "Online";
+            } else {
+                indicator.className = "h-3 w-3 rounded-full bg-rose-500";
+                statusText.className = "text-sm font-semibold text-rose-400";
+                statusText.innerText = "Offline";
+            }
+
+            // Format Last Seen Timestamp Window
+            if (data.last_seen_by_esp) {
+                const date = new Date(data.last_seen_by_esp);
+                lastSeenText.innerText = `Last ping: ${date.toLocaleTimeString()}`;
+            }
+
+            // Render Toggle Visual States
+            if (data.is_permitted) {
+                btn.className = "h-32 w-32 rounded-full border-4 border-emerald-500 bg-slate-900 text-emerald-400 shadow-[inset_0_0_12px_rgba(16,185,129,0.2)] flex flex-col items-center justify-center space-y-1 mx-auto focus:outline-none";
+                btnLabel.innerText = "Firing (1)";
+            } else {
+                btn.className = "h-32 w-32 rounded-full border-4 border-slate-700 bg-slate-900 text-slate-400 hover:border-blue-500 transition-all duration-300 shadow-inner flex flex-col items-center justify-center space-y-1 mx-auto focus:outline-none";
+                btnLabel.innerText = "Ready (0)";
+            }
+        }
+
+        async function togglePowerPermission() {
+            // Find current status first to flip the value
+            const btnLabel = document.getElementById('buttonStateLabel').innerText;
+            const targetState = btnLabel.includes("READY");
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/pc-status/`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Token ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ is_permitted: targetState })
+                });
+
+                const data = await response.json();
+                updateUI(data);
+            } catch (error) {
+                console.error("Failed sending permission toggle adjustment:", error);
+            }
+        }
+
+        function logout() {
+            clearInterval(pollingInterval);
+            localStorage.removeItem('pc_auth_token');
+            authToken = null;
+            document.getElementById('controlSection').classList.add('hidden');
+            document.getElementById('authSection').classList.remove('hidden');
+            document.getElementById('authForm').reset();
+            switchTab('login');
+        }
+    </script>
+</body>
+
+</html>
